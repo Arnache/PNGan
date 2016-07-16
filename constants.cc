@@ -35,7 +35,7 @@
 
 // v1.1
 
-#define EMBEDDED_ICC  "iCPP" 
+#define EMBEDDED_ICC  "iCCP" 
 #define SUGGESTED_PAL "sPLT" 
 #define SRGB          "sRGB" 
 
