@@ -1,0 +1,1 @@
+CC-BY-SA Arnaud Chéritat (2001 for the first version, sporadic updates since).
