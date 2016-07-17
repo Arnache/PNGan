@@ -4,34 +4,37 @@ This program analyses a PNG file.
 
 Language : C++
 
-Compiler : gcc
+Compilation :
+- Compiler : (tested with) gcc
+- Requirements : zlib library and headers must be installed
+- Command : g++ PNGan.cc -lz -o PNGan
 
-Compilation : g++ PNGan.cc -o PNGan.exe
-
-Version : 0.92
+Version : 0.93
 
 Author : Arnaud Chéritat
 
 Licence : CC-BY-SA
 
 Copyright : 2001 for the first version, a few rare updates in between.
-Present update: 2016
+Present update: 2016,
+  added zlib support + UTF8 output and some conversion from latin1 to utf8
+  so now can decode zTXt and iTXt
+  partially cleaned the code
 
 input : filename of the png file
 
 outputs to cout
 
-TODO : handle ztext (needs zlib)
+TODO : read iCCP text
 TODO : some messages have no meaning if corresponding variable is undefined
-TODO : count non-fatal errors
 TODO : concise version
-
 */
 
 #include "constants.cc"
 
 // Libraries
 
+#include <zlib.h>
 #include <iostream>
 #include <cstdio>
 #include <cstdlib>
@@ -48,10 +51,10 @@ unsigned char  auxu;
 long           width, height;
 unsigned char  bit_depth, color_type, compression, filter, interlace;
 bool           palette_used, color_used, alpha_used; // color type flags 
-bool           fin; // end of file reached
+bool           end_chunk_met;
 bool           text_only;
-fpos_t         pos_retenue, pos_temp;
-long int       pos_retenue_longint;
+fpos_t         chunk_start, chunk_next;
+long int       chunk_start_longint;
 enum types     {pasdef,png1_0};
 types          type;
 long int       fsize;
@@ -114,21 +117,6 @@ unsigned long update_crc(unsigned long crc, unsigned char* buf, unsigned int len
 }
 
 /*
-fp is the file pointer
-hold() marks the current position in and goes to another
-release() goes back to the marked position
-*/
-
-void hold() {
-  fgetpos(fp,&pos_temp);
-  fsetpos(fp,&pos_retenue);
-}
-
-void release() {
-  fsetpos(fp,&pos_temp);
-}
-
-/*
 when fread returns a value < the number of blocks that were called for,
 this can be for two reasons. The function below will determine which and throw the corresponding error.
 */
@@ -139,6 +127,23 @@ void call_err()
     throw erreur_eof;
   else
     throw erreur_read;
+}
+
+/*
+as the name says... 
+(note that it does not append a null character)
+*/
+void latin1_to_utf8(unsigned char *in, unsigned char* out, unsigned int len_in, unsigned  int& len_out) {
+  len_out=0;
+  for(unsigned int i=0; i<len_in; i++) {
+    uint8_t ch = in[i];
+    if(ch < 0x80) {
+      out[len_out++]=ch;
+    } else {
+      out[len_out++]= 0xc0 | (ch & 0xc0) >> 6;
+      out[len_out++]= 0x80 | (ch & 0x3f);
+    }
+  }
 }
 
 /* Reads n bytes from file and puts them in the dynamic array "signature" */
@@ -170,17 +175,17 @@ void myfread3(int n, void* dest)  // DO NOT FORGET : dest argument needs an '&'
    delete[] tempo;
 }
 
-/* reads content of chunk starting from pos_retenue and puts it in chunk_data,
+/* reads content of chunk starting from chunk_start and puts it in chunk_data,
  * CAUTION : never call before having called chunkRead
  */
 
-bool chunk_load_finished;
+bool chunk_stream_finished;
 
-unsigned int chunkLoad() {
+unsigned int chunkReadMorsel() {
   unsigned int len;
-  if(ftell(fp) + 65535L >= pos_retenue_longint + chunk_length) {
-    chunk_load_finished=true;
-    len = (unsigned int) ((pos_retenue_longint + chunk_length) - ftell(fp) );
+  if(ftell(fp) + 65535L >= chunk_start_longint + chunk_length) {
+    chunk_stream_finished=true;
+    len = (unsigned int) ((chunk_start_longint + chunk_length) - ftell(fp) );
   }
   else {
     len = 65535u;
@@ -188,16 +193,13 @@ unsigned int chunkLoad() {
   delete[] chunk_data;
   chunk_data = new char[len];  // CAUTION : no NULL added at the end
   fread(chunk_data,1,len,fp);  // NORMALLY : no eof, as checked in chunkRead()
-  if(chunk_load_finished) {
-    release();
-  }
   return len;
 }
 
-void chunkLoadInit() {
-  chunk_load_finished=false;
-  hold();
+void chunkStreamInit() {
+  chunk_stream_finished=false;
 }
+
 
 #include "handlers.cc"
 
@@ -217,29 +219,35 @@ void chunkRead() {
   if(chunk_length < 0) {
     throw erreur_neg;
   }
+
+  // memorize position in chunk_start
+
+  fgetpos(fp,&chunk_start);
+  chunk_start_longint = ftell(fp);
+
+  // data for the CRC check include the chunk type (but not the chunk length)
+  fseek(fp,-4,SEEK_CUR); 
   
-  // memorize position in pos_retenue
-  
-  fgetpos(fp,&pos_retenue);
-  pos_retenue_longint = ftell(fp);
-  fseek(fp,chunk_length,SEEK_CUR);
-  
-  // CRC (Cyclic Redundancy Check)
-  
-  myfread3(4,&chunk_crc);
-  
-  chunkLoadInit();
-  fseek(fp,-4,SEEK_CUR);
   unsigned long crc = 0xffffffffL;
   unsigned int len;
-  for( ; !chunk_load_finished; ) {
-    len = chunkLoad();
+  chunkStreamInit();
+  for( ; !chunk_stream_finished; ) {
+    len = chunkReadMorsel();
     crc = update_crc(crc,(unsigned char*) chunk_data, len);
   };
   crc = crc ^ 0xffffffffL;
+  
+  // CRC (Cyclic Redundancy Check) : value is stored as 4 bytes following the chunk
+  
+  myfread3(4,&chunk_crc);
+    
+  // memorize next chunk position
+  fgetpos(fp,&chunk_next);
+
   if(chunk_crc != crc) {
-    cout << "\n" << "Error : CRC check incorrect (file tells 0x"
+    cout << "\n" << "Error: CRC check incorrect (file tells 0x"
          << hex << chunk_crc << " computation gives 0x" << crc << dec << ")\n\n";
+    error_count++;
   };
   
   // Vérification du bon ordre des chunks
@@ -247,16 +255,22 @@ void chunkRead() {
   checkOrder();
   
   // Traitement personnalisé du chunk
+
+  fsetpos(fp,&chunk_start);
   
+//      cout << "POS-deb: "<< ftell(fp) << endl;
   handleChunk();
-  
+//      cout << "POS-fin: "<< ftell(fp) << endl;
+    
+  fsetpos(fp,&chunk_next);
+
   // saut de ligne
   
   if(output) { cout << "\n"; }
 }
 
 void show_options() { 
-  cout << "  options : -t (--text) : Text only\n";
+  cout << "  options: -t (--text): Text only\n";
 }
 
 void clean() {
@@ -270,7 +284,7 @@ void clean() {
 
 int main(int argc, char * argv[]) {
 
-  cout << "PngAn v0.92\n\n";
+  cout << "PngAn v0.93\n\n";
   
   chunk_data = new char[1];
   
@@ -279,11 +293,11 @@ int main(int argc, char * argv[]) {
   // test number of aguments
 
   if(argc!=2 && argc!=3) {
-    cout << "Usage : PNGan [options] filename\n";
-    cout << "  filename : name of the PNG file to be analysed\n";
+    cout << "Usage: PNGan [options] filename\n";
+    cout << "  filename: name of the PNG file to be analysed\n";
     show_options();
     cout << "PNG file Analyser\n";
-    cout << "author : Arnaud Cheritat\n";
+    cout << "author: Arnaud Cheritat\n";
     cout << "(PNG version up to 1.2, no extensions, no zlib decompression)\n";
     exit(ARG_ERROR);
   };
@@ -293,7 +307,7 @@ int main(int argc, char * argv[]) {
       text_only = true;
     }
     else {
-      cout << "Error : bad option (option=first argument)\n";
+      cout << "Error: bad option (option=first argument)\n";
       show_options();
       exit(ARG_ERROR);
     }
@@ -307,12 +321,12 @@ int main(int argc, char * argv[]) {
   filename=argv[argc-1];
   fp=fopen(filename,"rb"); // PNG filename
   if(fp==NULL) {
-    cout << "Fatal Error : unable to open file " << filename << "\n";
+    cout << "Fatal Error: unable to open file " << filename << "\n";
     exit(OPEN_ERROR);
   };
-  fseek(fp,0,SEEK_END);
-  fsize=ftell(fp);
-  fseek(fp,0,SEEK_SET);
+//  fseek(fp,0,SEEK_END);
+ // fsize=ftell(fp);
+//  fseek(fp,0,SEEK_SET);
   
   cout << "Analysis of file " << filename << "\n\n\n";
   
@@ -346,7 +360,7 @@ int main(int argc, char * argv[]) {
       if(output) { cout << "  correct" << "\n\n"; }
     }
     else {
-      cout << "\n" << "Fatal Error : wrong signature\n" 
+      cout << "\n" << "Fatal Error: wrong signature\n" 
            << "(should be = h89 h50 h4E h47 h0D h0A h1A h0A in hex,\n" 
            << "meaning 137 80 78 71 13 10 26 10 in decimal)\n";
       clean();
@@ -372,40 +386,54 @@ int main(int argc, char * argv[]) {
 
     // main loop
     
-    fin=false;
+    end_chunk_met=false;
+    bool file_end=false;
+    unsigned char dummy;
     do {
       chunkRead(); // handle next chunk
-    } while(!fin);
+      // the 3 following lines are to check
+      // whether we reached the end of the file
+      fread(&dummy,1,1,fp);   // this is ridiculous
+      file_end = feof(fp);   // this is ridiculous
+      fseek(fp,-1,SEEK_CUR); // this is ridiculous
+    } while(!end_chunk_met && !file_end);
 
-    if(ftell(fp) != fsize) {
-            cout << "Error : data beyond chunk END (" << (fsize-ftell(fp)) << " bytes)\n";
+    if(end_chunk_met && !file_end) {
+      cout << "Error: data beyond chunk END (" << (fsize-ftell(fp)) << " bytes)\n";
+      error_count++;
+    };
+
+    if(!end_chunk_met && file_end) {
+      cout << "Error: no END chunk\n";
+      error_count++;
     };
     
     cout << "\n" << "Analysis finished.\n\n";
     
     if(error_count >0) {
-      cout << "Errors occurred.\n";
+      cout << error_count << " non-fatal errors detected.\n";
     } else {
-      cout << "File is OK.\n";
+      cout << "File looks OK.\n";
     }
+    cout << "(No image decoding attempted.)\n";
   }
   catch(erreur_eof_struct err) {
-    cout << "Fatal Error : unexpected end of file\n";
+    cout << "Fatal Error: unexpected end of file\n";
     clean();
     exit(EOF_ERROR);
   }
   catch(erreur_read_struct err) {
-    cout << "Fatal Error : unexpected end of file\n";
+    cout << "Fatal Error: file read error\n";
     clean();
     exit(READ_ERROR);
   }
   catch(bad_alloc err) {
-    cout << "Fatal Error : memory error\n";
+    cout << "Fatal Error: memory error\n";
     clean();
     exit(MEM_ERROR);
   }
   catch(erreur_neg_struct err) {
-    cout << "Fatal Error : negative length chunk\n";
+    cout << "Fatal Error: negative length chunk\n";
     clean();
     exit(NEG_ERROR);
   }
