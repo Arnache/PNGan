@@ -1,3 +1,5 @@
+#define VERSION 0.94
+
 /*
 
 This program analyses a PNG file.
@@ -8,8 +10,6 @@ Compilation :
 - Compiler : (tested with) gcc
 - Requirements : zlib library and headers must be installed
 - Command : g++ PNGan.cc -lz -o PNGan
-
-Version : 0.93
 
 Author : Arnaud Chéritat
 
@@ -25,7 +25,7 @@ input : filename of the png file
 
 outputs to cout
 
-TODO : read iCCP text
+TODO : interpret iCCP?
 TODO : some messages have no meaning if corresponding variable is undefined
 TODO : concise version
 */
@@ -38,6 +38,7 @@ TODO : concise version
 #include <iostream>
 #include <cstdio>
 #include <cstdlib>
+#include <stdint.h>
 using namespace std; 
 
 // Global variables
@@ -48,7 +49,7 @@ char           *filename;     // will contain argv[..] so no need to free it
 unsigned char  signature[10];
 unsigned char  global_flags;
 unsigned char  auxu;
-long           width, height;
+int32_t           width, height;
 unsigned char  bit_depth, color_type, compression, filter, interlace;
 bool           palette_used, color_used, alpha_used; // color type flags 
 bool           end_chunk_met;
@@ -63,7 +64,7 @@ int            palette_size;
 long int       chunk_length;
 char           chunk_name[5];  // array
 char*          chunk_data;     // dynamic array
-unsigned long  chunk_crc;
+uint32_t       chunk_crc;
 
 long int       error_count;
 
@@ -88,14 +89,14 @@ bool bits_met;
 
 // CRC check (adapted from sample of recommandation document)
 
-unsigned long crc_table[256];
+uint32_t crc_table[256];
 
 void make_crc_table() {
-  unsigned long c;
+  uint32_t c;
   int n,k;
   
   for(n=0; n<256; n++) {
-    c = (unsigned long) n;
+    c = (uint32_t) n;
     for(k=0; k<8; k++) {
       if(c & 1)
         c = 0xedb88320L ^ (c >> 1);
@@ -106,8 +107,8 @@ void make_crc_table() {
   }
 }
 
-unsigned long update_crc(unsigned long crc, unsigned char* buf, unsigned int len) {
-  unsigned long c = crc;
+uint32_t update_crc(uint32_t crc, unsigned char* buf, unsigned int len) {
+  uint32_t c = crc;
   unsigned int n;
   
   for(n=0; n<len; n++) {
@@ -228,7 +229,7 @@ void chunkRead() {
   // data for the CRC check include the chunk type (but not the chunk length)
   fseek(fp,-4,SEEK_CUR); 
   
-  unsigned long crc = 0xffffffffL;
+  uint32_t crc = 0xffffffffL;
   unsigned int len;
   chunkStreamInit();
   for( ; !chunk_stream_finished; ) {
@@ -284,7 +285,7 @@ void clean() {
 
 int main(int argc, char * argv[]) {
 
-  cout << "PngAn v0.93\n\n";
+  cout << "PngAn v" << VERSION << "\n\n";
   
   chunk_data = new char[1];
   

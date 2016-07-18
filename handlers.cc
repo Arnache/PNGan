@@ -1,6 +1,6 @@
 // Handlers
 
-bool readKeyword(bool output) {
+bool readKeyword(const char* key_text, bool output) {
   // returns false if chunk processing shall stop
   unsigned int sz = (unsigned int)((chunk_length < 80) ? chunk_length : 80);
   delete[] chunk_data;
@@ -37,7 +37,7 @@ bool readKeyword(bool output) {
     char keyword2[200];
     unsigned int len2;
     latin1_to_utf8((unsigned char*)keyword,(unsigned char*)keyword2,(unsigned int)i,len2);
-    cout << "    Keyword: \"";
+    cout << key_text;
     cout.write(keyword2,(int)len2);
     cout << "\"\n";
   }
@@ -383,7 +383,7 @@ void handleChroma(bool output) {
   else {
     typedef long double MYREAL;
     double auxf;
-    unsigned long int a;
+    uint32_t a;
     myfread3(4,&a); auxf = ((MYREAL) a)/((MYREAL) 100000L);
     if(output) { cout << "    White Point x = " << auxf << "\n"; }
     myfread3(4,&a); auxf = ((MYREAL) a)/((MYREAL) 100000L);
@@ -410,7 +410,7 @@ void handleGamma(bool output) {
   }
   else {
     float gamma;
-    unsigned long int a;
+    uint32_t a;
     myfread3(4,&a);
     gamma = ((float) a)/((float) 100000L);
     if(output) { cout << "    Gamma = " << gamma << "\n"; }
@@ -432,7 +432,7 @@ void handlePixel(bool output) {
     error_count++;
   }
   else {
-    unsigned long a,b;
+    uint32_t a,b;
     unsigned char c;
     myfread3(4,&a);
     myfread3(4,&b);
@@ -615,7 +615,9 @@ void handleTransparency(bool output) {
 
 void handleText(bool output) {
   
-  if(!readKeyword(output)) return;
+  cout << "    Textual data, latin-1 encoded.\n";
+
+  if(!readKeyword("    Keyword: \"",output)) return;
 
   if(output) {
     cout << "    Text: \"";
@@ -638,7 +640,9 @@ void handleText(bool output) {
 
 void handleZtext(bool output) {
 
-  if(!readKeyword(output)) return;
+  cout << "    Compressed textual data, latin-1 encoded.\n";
+
+  if(!readKeyword("    Keyword: \"",output)) return;
 
   unsigned char method;
   myfread2(1,&method);
@@ -659,7 +663,10 @@ void handleZtext(bool output) {
 }
 
 void handleItext(bool output) {
-  if(!readKeyword(output)) return;
+
+  cout << "    International textual data, utf-8 encoded.\n";
+
+  if(!readKeyword("    Keyword: \"",output)) return;
 
   unsigned char compressed;
   myfread2(1,&compressed);
@@ -729,6 +736,34 @@ void handleItext(bool output) {
       }
     }
   }
+}
+
+void handleICCP(bool output) {
+
+  cout << "    Embedded International Color Consortium profile.\n";
+
+  if(!readKeyword("    Profile name: \"",output)) return;
+
+  unsigned char method;
+  myfread2(1,&method);
+  
+  if(output) {
+    cout << "    Compression method (0=zlib) : " << (int)method << "\n";
+  }
+  
+  cout << "    Content: this version of PNGan does not support ICC interpretation.\n" ;
+/*
+  if(output) {
+    // buffer the whole chunk remaider in memory
+    unsigned int len = chunk_length-(ftell(fp)-chunk_start_longint);
+    delete[] chunk_data;
+    chunk_data = new char[len];
+    if(fread(chunk_data,1,len,fp)<len) call_err();
+    
+    err... dunno what to do with this data: have to write/get an ICC decoder
+
+  }
+*/
 }
 
 void handleSRGB(bool output) {
@@ -968,7 +1003,7 @@ void handleChunk() {
   output=true;
   if(strncmp(chunk_name,ZTEXT,4)==0)         { handleZtext(output); goto escape_pt; }
   // v1.1
-  if(strncmp(chunk_name,EMBEDDED_ICC,4)==0)  { goto escape_pt; }
+  if(strncmp(chunk_name,EMBEDDED_ICC,4)==0)  { handleICCP(output); goto escape_pt; }
   if(strncmp(chunk_name,SUGGESTED_PAL,4)==0) { goto escape_pt; }
   output=!text_only;
   if(strncmp(chunk_name,SRGB,4)==0)          { handleSRGB(output); goto escape_pt; }
