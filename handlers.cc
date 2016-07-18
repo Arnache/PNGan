@@ -46,11 +46,11 @@ bool readKeyword(const char* key_text, bool output) {
   // in this case file position is just after the null string terminator
 }
 
-void output_ztext(char *buffer, unsigned int len, const char* head_text, const char* trail_text, bool latin1) {
+void output_ztext(char *buffer, uint32_t len, const char* head_text, const char* trail_text, bool latin1) {
   int MORSEL=16384;
 
   int ret;
-  unsigned int have,have2;
+  uint32_t have,have2;
   z_stream strm;
   unsigned char out[MORSEL];
   unsigned char out2[2*MORSEL];
@@ -68,8 +68,8 @@ void output_ztext(char *buffer, unsigned int len, const char* head_text, const c
 
   cout << head_text;
   
-  int delta;
-  int i=0;
+  int32_t delta;
+  uint32_t i=0;
 
   do {
     delta=len-i;
@@ -280,7 +280,7 @@ void handlePalette(bool output) {
       error_count++;
     }
     else {
-      palette_size =(int)( ldiv(chunk_length,3).quot); // normally, length >0
+      palette_size =(uint32_t)( ldiv(chunk_length,3).quot); // normally, length >0
       if(output) { cout << "    number of entries = " << palette_size << "\n"; }
       if(color_type==2 || color_type==6) { // Suggested Palette
         if(output) { cout << "    the suggested palette if the display is not TrueColor\n"; }
@@ -328,7 +328,7 @@ void handleBackground(bool output) {
       }
     } break;
     case 0 : case 4 : {
-      unsigned short int c;
+      uint16_t c;
       if(chunk_length!=2) {
         cout << "Error: chunk size should be 2 for color modes 0 and 4";
         error_count++;
@@ -345,7 +345,7 @@ void handleBackground(bool output) {
       }
     } break;
     case 2 : case 6 : {
-      unsigned short int cR,cG,cB;
+      uint16_t cR,cG,cB;
       if(chunk_length!=6) {
         cout << "Error: chunk size should be 6 for color modes 2 and 6";
         error_count++;
@@ -465,7 +465,7 @@ void handlePixel(bool output) {
 
 void handleBits(bool output) {
   if(output) { cout << "    Significant bits of original data: "; }
-  unsigned short int red,green,blue,gray,alpha;
+  uint16_t red,green,blue,gray,alpha;
   switch(color_type) {
   case 0 : {
     if(chunk_length!=1) {
@@ -537,7 +537,7 @@ void handleTime(bool output) {
     error_count++;
   }
   else {
-    unsigned short int year;
+    uint16_t year;
     unsigned char month, day, hour, minute, second;
     myfread3(2,&year);
     myfread3(1,&month);
@@ -575,7 +575,7 @@ void handleTransparency(bool output) {
       cout << "Error: chunk should be 2 bytes long\n";
       error_count++;
     } else {
-      unsigned short int index;
+      uint16_t index;
       myfread3(2,&index);
       if(output) { cout << "    in color mode 0, this chunk contains the gray level of\n"
            << "    the only transparent color: " << index << "\n"; }
@@ -592,7 +592,7 @@ void handleTransparency(bool output) {
       cout << "Error: chunk should be 6 bytes long\n";
       error_count++;
     } else {
-      unsigned short int ir,ig,ib,mx;
+      uint16_t ir,ig,ib,mx;
       myfread3(2,&ir);
       myfread3(2,&ig);
       myfread3(2,&ib);
@@ -624,13 +624,13 @@ void handleText(bool output) {
     fsetpos(fp,&chunk_start);
     chunkStreamInit();
     for( ; !chunk_stream_finished; ) {
-      unsigned int len=chunkReadMorsel();
+      uint32_t len=chunkReadMorsel();
       char* texte=new char[len];
       strncpy(texte, chunk_data, len);
-      unsigned char* texte2=new unsigned char[2*len];
-      unsigned int len2;
+      unsigned char* texte2=new unsigned char[2*len]; // 2*len cannot exceed uint32_t's limit because the morsel is small enough (for 2 reasons)
+      uint32_t len2;
       latin1_to_utf8((unsigned char*)texte,texte2,len,len2);
-      if(output) { cout.write((char *)texte2,(int) len2); }
+      if(output) { cout.write((char *)texte2, len2); } // len2 should be small enough to be correctly converted to a length of type "streamsize"
       delete[] texte2;
       delete[] texte;
       cout << "\"\n";
@@ -653,7 +653,7 @@ void handleZtext(bool output) {
   
   if(output) {
     // buffer the whole chunk remaider in memory
-    unsigned int len = chunk_length-(ftell(fp)-chunk_start_longint);
+    uint32_t len = chunk_length-(ftell(fp)-chunk_start_longint);
     delete[] chunk_data;
     chunk_data = new char[len];
     if(fread(chunk_data,1,len,fp)<len) call_err();
@@ -677,14 +677,14 @@ void handleItext(bool output) {
   if(output) { cout << "    Compression method (0=zlib) : " << (int)method << "\n"; }
 
   // buffer the whole chunk remainder in memory
-  unsigned int po=ftell(fp)-chunk_start_longint;
-  unsigned int len = chunk_length-po;
+  uint32_t po=(uint32_t) (ftell(fp)-chunk_start_longint);
+  uint32_t len = chunk_length-po;
   delete[] chunk_data;
   chunk_data = new char[len];
   if(fread(chunk_data,1,len,fp)<len) call_err();
 
   bool null_found=false;
-  int po2;
+  uint32_t po2;
   for(po2=po; po2<chunk_length && !null_found; po2++) {
     null_found = chunk_data[po2]==0;
   }
@@ -701,7 +701,7 @@ void handleItext(bool output) {
   }
 
   null_found=false;
-  int po3;
+  uint32_t po3;
   for(po3=po2; po3<chunk_length && !null_found; po3++) {
     null_found = chunk_data[po3]==0;
   }
@@ -727,10 +727,10 @@ void handleItext(bool output) {
     if(output) {
       chunkStreamInit();
       for( ; !chunk_stream_finished; ) {
-        unsigned int len=chunkReadMorsel();
+        uint32_t len=chunkReadMorsel();
         char* texte=new char[len];
         strncpy(texte, chunk_data, len);
-        cout.write((char *)texte,(int)len);
+        cout.write((char *)texte,len);
         delete[] texte;
         cout << "\"\n";
       }
@@ -755,7 +755,7 @@ void handleICCP(bool output) {
 /*
   if(output) {
     // buffer the whole chunk remaider in memory
-    unsigned int len = chunk_length-(ftell(fp)-chunk_start_longint);
+    uint32_t len = chunk_length-(ftell(fp)-chunk_start_longint);
     delete[] chunk_data;
     chunk_data = new char[len];
     if(fread(chunk_data,1,len,fp)<len) call_err();

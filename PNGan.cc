@@ -59,9 +59,9 @@ long int       chunk_start_longint;
 enum types     {pasdef,png1_0};
 types          type;
 long int       fsize;
-int            palette_size;
+long int       palette_size;
 
-long int       chunk_length;
+int32_t        chunk_length;   // PNG standard tells something strange about the sign here
 char           chunk_name[5];  // array
 char*          chunk_data;     // dynamic array
 uint32_t       chunk_crc;
@@ -134,9 +134,9 @@ void call_err()
 as the name says... 
 (note that it does not append a null character)
 */
-void latin1_to_utf8(unsigned char *in, unsigned char* out, unsigned int len_in, unsigned  int& len_out) {
+void latin1_to_utf8(unsigned char *in, unsigned char* out, uint32_t len_in, uint32_t& len_out) {
   len_out=0;
-  for(unsigned int i=0; i<len_in; i++) {
+  for(uint32_t i=0; i<len_in; i++) {
     uint8_t ch = in[i];
     if(ch < 0x80) {
       out[len_out++]=ch;
