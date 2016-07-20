@@ -621,17 +621,17 @@ void handleText(bool output) {
 
   if(output) {
     cout << "    Text: \"";
-    fsetpos(fp,&chunk_start);
+//    fsetpos(fp,&chunk_start);
     chunkStreamInit();
     for( ; !chunk_stream_finished; ) {
       uint32_t len=chunkReadMorsel();
       char* texte=new char[len];
       strncpy(texte, chunk_data, len);
+//      if(output) { cout.write((char *)texte, len); }
       unsigned char* texte2=new unsigned char[2*len]; // 2*len cannot exceed uint32_t's limit because the morsel is small enough (for 2 reasons)
       uint32_t len2;
       latin1_to_utf8((unsigned char*)texte,texte2,len,len2);
       if(output) { cout.write((char *)texte2, len2); } // len2 should be small enough to be correctly converted to a length of type "streamsize"
-      delete[] texte2;
       delete[] texte;
       cout << "\"\n";
     }
