@@ -1,1 +1,0 @@
-clang++ -std=c++11 PNGan.cc -lz -o PNGan -Wall
