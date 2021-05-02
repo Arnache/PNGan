@@ -10,6 +10,7 @@
 #define NEG_ERROR     128
 #define MEM_ERROR     256
 #define READ_ERROR    512
+#define FILE_ERROR   1024
 
 // Critical
 
@@ -35,7 +36,7 @@
 
 // v1.1
 
-#define EMBEDDED_ICC  "iCCP" 
+#define EMBEDDED_ICC  "iCCP"
 #define SUGGESTED_PAL "sPLT" 
 #define SRGB          "sRGB" 
 

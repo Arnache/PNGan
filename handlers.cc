@@ -1,18 +1,20 @@
 // Handlers
 
 bool readKeyword(const char* key_text, bool output) {
+  using std::cout;
   // returns false if chunk processing shall stop
-  unsigned int sz = (unsigned int)((chunk_length < 80) ? chunk_length : 80);
-  delete[] chunk_data;
-  chunk_data = new char[sz];
-  if(fread(chunk_data,1,sz,fp)<sz) call_err();
+
+  int sz = (chunk_length < 80) ? chunk_length : 80;
+  // sz is at most 80
+  chunk_data.resize(sz);
+  if(!ifs.read(&chunk_data[0],sz)) call_err();
 
   bool null_found=false;
   bool printable=true;
-  int i;
+  int index;
   unsigned char d;
-  for(i=0; i<sz && !null_found; i++) {
-    d=(unsigned char) chunk_data[i];
+  for(index=0; index<sz && !null_found; index++) {
+    d=(unsigned char) chunk_data[index];
     null_found = d==0;
     printable=printable && (d==0 || (d>=32u && d<=126u) || (d>=161u && d<=255u));
   }
@@ -23,8 +25,8 @@ bool readKeyword(const char* key_text, bool output) {
     return false;
   }
 
-  fsetpos(fp,&chunk_start);
-  fseek(fp,i,SEEK_CUR);
+  ifs.seekg(chunk_start);
+  ifs.seekg(index,std::ios_base::cur);
 
   if(!printable) {
     cout << "Error: Keyword contains non pritable characters (should be latin1 encoded with char codes in 32-126 or 161-255)\n";
@@ -33,27 +35,23 @@ bool readKeyword(const char* key_text, bool output) {
   
   if(output) {
     char keyword[100];
-    strcpy(keyword,chunk_data);
-    char keyword2[200];
-    unsigned int len2;
-    latin1_to_utf8((unsigned char*)keyword,(unsigned char*)keyword2,(unsigned int)i,len2);
-    cout << key_text;
-    cout.write(keyword2,(int)len2);
-    cout << "\"\n";
+    strcpy(keyword,&chunk_data[0]);
+    cout << key_text << latin1_to_utf8(keyword,index-1) << "\"\n";
+    // if index = 0, this is not a problem because latin1_to_utf8(-1) will just do nothing
   }
   
   return true;
   // in this case file position is just after the null string terminator
+  // or at the end of the chunk if chunk_length = 0 (then the PNG is malformed)
 }
 
-void output_ztext(char *buffer, uint32_t len, const char* head_text, const char* trail_text, bool latin1) {
-  int MORSEL=16384;
+void output_ztext(char *buffer, size_t len, const char* head_text, const char* trail_text, bool latin1) {
+  using std::cout;
+  const uint32_t MORSEL = 1 << 17; // 128K
 
   int ret;
-  uint32_t have,have2;
   z_stream strm;
   unsigned char out[MORSEL];
-  unsigned char out2[2*MORSEL];
 
   strm.zalloc = Z_NULL;
   strm.zfree = Z_NULL;
@@ -63,42 +61,49 @@ void output_ztext(char *buffer, uint32_t len, const char* head_text, const char*
   ret = inflateInit(&strm);
   if (ret != Z_OK) {
     cout << "Error initializing zlib...\n";
+    error_count++;
     return;
   } 
 
   cout << head_text;
   
-  int32_t delta;
-  uint32_t i=0;
+  uint32_t delta;
+  size_t i=0;
 
   do {
-    delta=len-i;
-    if(delta==0) {
+    if(len==i) {
       cout << "\nError while deflating: chunk finished before any ending marker was reached\n";
+      error_count++;
       goto fin;
     }
-    if(delta>MORSEL) delta=MORSEL;
+    if(len>i+MORSEL) delta=MORSEL;
+    else delta = (uint32_t)(len-i);
     strm.avail_in = delta;
     strm.next_in = (unsigned char *)buffer+i;
     i += delta;
-    
     do {
       strm.avail_out = MORSEL;
       strm.next_out = out;
       ret = inflate(&strm, Z_NO_FLUSH);
       switch (ret) {
         case Z_NEED_DICT:
+          cout << "\"\nZ_NEED_DICT error while deflating... error code " << ret << "\n";
+          error_count++;
           ret = Z_DATA_ERROR;
-        case Z_DATA_ERROR:
-        case Z_MEM_ERROR:
-          cout << "\nData error while deflating... nb " << ret << "\n";
           goto fin;
-      }        
+        case Z_DATA_ERROR:
+          cout << "\"\nZ_DATA error while deflating... error code " << ret << "\n";
+          error_count++;
+          goto fin;
+        case Z_MEM_ERROR:
+          cout << "\"\nZ_MEM error while deflating... error code " << ret << "\n";
+          error_count++;
+          goto fin;
+      }
 
-      have = MORSEL - strm.avail_out;
+      uint32_t have = MORSEL - strm.avail_out;
       if(latin1) {
-        latin1_to_utf8(out,out2,have,have2);
-        cout.write((char *)out2,have2);
+        cout << latin1_to_utf8(out,have);
       }
       else {
         cout.write((char *)out,have);
@@ -111,34 +116,35 @@ void output_ztext(char *buffer, uint32_t len, const char* head_text, const char*
 fin:
   (void)inflateEnd(&strm);
 
-  cout << trail_text;
+  if(ret==Z_STREAM_END) cout << trail_text;
 }
 
 void handleHeader(bool output) {
+  using std::cout;
   
   if(chunk_length!=13) {
     cout << "Fatal Error: header chunk should be 13 bytes long\n";
   }
   else {
     
-    myfread3(4,&width);
+    readNumber(4,width,true);
     if(output) { cout << "    Width: " << width << "\n"; }
     if(width<0) {
       cout << "Error: negative width";
       error_count++;
     }
     
-    myfread3(4,&height);
+    readNumber(4,height,true);
     if(output) { cout << "    Height: " << height << "\n"; }
     if(height<0) {
       cout << "Error: negative height";
       error_count++;
     }
     
-    myfread3(1,&bit_depth);
+    readNumber(1,bit_depth,false);
     if(output) { cout << "    Bit depth: " << (int) bit_depth << "\n"; }
     
-    myfread3(1,&color_type);
+    readNumber(1,color_type,false);
     bool good_color;
     char aux2[10];
     if(color_type>7) {
@@ -158,15 +164,15 @@ void handleHeader(bool output) {
     }
     if(output) { cout << "\n"; }
     
-    myfread3(1,&compression);
+    readNumber(1,compression,false);
     if(output) { cout << "    Compression: " << (int) compression << "\n"; }
     bool good_compression = (compression == 0);
     
-    myfread3(1,&filter);
+    readNumber(1,filter,false);
     if(output) { cout << "    Filter: " << (int) filter << "\n"; }
     bool good_filter = (compression == 0);
     
-    myfread3(1,&interlace);
+    readNumber(1,interlace,false);
     if(output) { cout << "    Interlace: " << (int) interlace << "\n"; }
         
     if(!good_color) {
@@ -247,14 +253,14 @@ void handleHeader(bool output) {
         error_count++;
       }
       };
-      cout << "\n";
+      if(output) cout << "\n";
       
       if(!good_compression) {
-              cout << "Error: compression type unknown (only 0 is allowed in PNG 1.0)\n";
+        cout << "Error: compression type unknown (only 0 is allowed in PNG 1.0 to 1.2)\n";
         error_count++;
       };
       if(!good_filter) {
-        cout << "Error: filter type unknown (only 0 is allowed in PNG 1.0)\n";
+        cout << "Error: filter type unknown (only 0 is allowed in PNG 1.0 to 1.2)\n";
         error_count++;
       };
       switch(interlace) {
@@ -265,7 +271,7 @@ void handleHeader(bool output) {
         if(output) { cout << "  Interlace: Adam7\n"; }
       } break;
       default : {
-        cout << "Error: unknown interlace type (only 0 and 1 are allowed in PNG 1.0)\n";
+        cout << "Error: unknown interlace type (only 0 and 1 are allowed in PNG 1.0 to 1.2)\n";
         error_count++;
       }
       };
@@ -274,13 +280,14 @@ void handleHeader(bool output) {
 }
 
 void handlePalette(bool output) {
+  using std::cout;
   if(header_met) {
     if((chunk_length % 3) != 0) {
       cout << "Error: chuck size should be a multiple of 3\n";
       error_count++;
     }
     else {
-      palette_size =(uint32_t)( ldiv(chunk_length,3).quot); // normally, length >0
+      palette_size =(int32_t)( ldiv(chunk_length,3).quot); // normally, length >0
       if(output) { cout << "    number of entries = " << palette_size << "\n"; }
       if(color_type==2 || color_type==6) { // Suggested Palette
         if(output) { cout << "    the suggested palette if the display is not TrueColor\n"; }
@@ -301,6 +308,8 @@ void handlePalette(bool output) {
 }
 
 void handleData() { // do nothing
+  total_idat_chunks++;
+  total_idat_bytes += chunk_length;
 }
 
 void handleEnd() {
@@ -308,6 +317,7 @@ void handleEnd() {
 }
 
 void handleBackground(bool output) {
+  using std::cout;
   if(header_met) {
     switch(color_type) {
     case 3 : {
@@ -317,7 +327,7 @@ void handleBackground(bool output) {
         error_count++;
       }
       else {
-        myfread3(1,&c);
+        readNumber(1,c,false);
         if(c < palette_size) {
           if(output) { cout << "    Background color has index (in the palette) = " << c << "\n"; }
         }
@@ -334,7 +344,7 @@ void handleBackground(bool output) {
         error_count++;
       }
       else {
-        myfread3(2,&c);
+        readNumber(2,c,false);
         if(c < (1 << bit_depth)) {
           if(output) { cout << "    Background Intensity = " << c << "\n"; }
         }
@@ -351,9 +361,9 @@ void handleBackground(bool output) {
         error_count++;
       }
       else {
-        myfread3(2,&cR);
-        myfread3(2,&cG);
-        myfread3(2,&cB);
+        readNumber(2,cR,false);
+        readNumber(2,cG,false);
+        readNumber(2,cB,false);
         if(cR < (1 << bit_depth) && cG < (1 << bit_depth) && cB < (1 << bit_depth)) {
           if(output) { cout << "    RGB values of background = " << cR << "," << cG << "," << cB << "\n"; }
         }
@@ -376,6 +386,7 @@ void handleBackground(bool output) {
 }
 
 void handleChroma(bool output) {
+  using std::cout;
   if(chunk_length!=32) {
     cout << "Error: chromaticity chunk length should be 32 bytes\n";
     error_count++;
@@ -384,26 +395,27 @@ void handleChroma(bool output) {
     typedef long double MYREAL;
     double auxf;
     uint32_t a;
-    myfread3(4,&a); auxf = ((MYREAL) a)/((MYREAL) 100000L);
+    readNumber(4,a,false); auxf = ((MYREAL) a)/((MYREAL) 100000L);
     if(output) { cout << "    White Point x = " << auxf << "\n"; }
-    myfread3(4,&a); auxf = ((MYREAL) a)/((MYREAL) 100000L);
+    readNumber(4,a,false); auxf = ((MYREAL) a)/((MYREAL) 100000L);
     if(output) { cout << "    White Point y = " << auxf << "\n"; }
-    myfread3(4,&a); auxf = ((MYREAL) a)/((MYREAL) 100000L);
+    readNumber(4,a,false); auxf = ((MYREAL) a)/((MYREAL) 100000L);
     if(output) { cout << "    Red Point x = " << auxf << "\n"; }
-    myfread3(4,&a); auxf = ((MYREAL) a)/((MYREAL) 100000L);
+    readNumber(4,a,false); auxf = ((MYREAL) a)/((MYREAL) 100000L);
     if(output) { cout << "    Red Point y = " << auxf << "\n"; }
-    myfread3(4,&a); auxf = ((MYREAL) a)/((MYREAL) 100000L);
+    readNumber(4,a,false); auxf = ((MYREAL) a)/((MYREAL) 100000L);
     if(output) { cout << "    Green Point x = " << auxf << "\n"; }
-    myfread3(4,&a); auxf = ((MYREAL) a)/((MYREAL) 100000L);
+    readNumber(4,a,false); auxf = ((MYREAL) a)/((MYREAL) 100000L);
     if(output) { cout << "    Green Point y = " << auxf << "\n"; }
-    myfread3(4,&a); auxf = ((MYREAL) a)/((MYREAL) 100000L);
+    readNumber(4,a,false); auxf = ((MYREAL) a)/((MYREAL) 100000L);
     if(output) { cout << "    Blue Point x = " << auxf << "\n"; }
-    myfread3(4,&a); auxf = ((MYREAL) a)/((MYREAL) 100000L);
+    readNumber(4,a,false); auxf = ((MYREAL) a)/((MYREAL) 100000L);
     if(output) { cout << "    Blue Point y = " << auxf << "\n"; }
   }
 }
 
 void handleGamma(bool output) {
+  using std::cout;
   if(chunk_length!=4) {
     cout << "Error: GAMMA chunk length should be 4 bytes\n";
     error_count++;
@@ -411,13 +423,14 @@ void handleGamma(bool output) {
   else {
     float gamma;
     uint32_t a;
-    myfread3(4,&a);
+    readNumber(4,a,false);
     gamma = ((float) a)/((float) 100000L);
     if(output) { cout << "    Gamma = " << gamma << "\n"; }
   }
 }
 
 void handleHistogram(bool output) {
+  using std::cout;
   if(palette_met) {
     if(chunk_length != 2*palette_size) {
       cout << "Error: histogram should have same number of entries as the palette\n";
@@ -427,6 +440,7 @@ void handleHistogram(bool output) {
 }
 
 void handlePixel(bool output) {
+  using std::cout;
   if(chunk_length!=9) {
     cout << "Error: this chunk should have 9 octets\n";
     error_count++;
@@ -434,9 +448,9 @@ void handlePixel(bool output) {
   else {
     uint32_t a,b;
     unsigned char c;
-    myfread3(4,&a);
-    myfread3(4,&b);
-    myfread3(1,&c);
+    readNumber(4,a,false);
+    readNumber(4,b,false);
+    readNumber(1,c,false);
     if(output) { cout << "    X : " << a << " dots per unit"; }
     if(c==1) {
       if(output) { cout << " (meaning " << 0.0254*((float) a) << "dpi)"; }
@@ -464,6 +478,7 @@ void handlePixel(bool output) {
 }
 
 void handleBits(bool output) {
+  using std::cout;
   if(output) { cout << "    Significant bits of original data: "; }
   uint16_t red,green,blue,gray,alpha;
   switch(color_type) {
@@ -473,7 +488,7 @@ void handleBits(bool output) {
       error_count++;
       return;
     }
-    myfread3(1,&gray);
+    readNumber(1,gray,false);
     if(output) { cout << gray << "\n"; }
     if(gray==0 || gray>bit_depth) {
       cout << "Error: should be > 0 and at most equal to the bit depth";
@@ -486,9 +501,9 @@ void handleBits(bool output) {
       error_count++;
       return;
     }
-    myfread3(1,&red);
-    myfread3(1,&green);
-    myfread3(1,&blue);
+    readNumber(1,red,false);
+    readNumber(1,green,false);
+    readNumber(1,blue,false);
     if(output) { cout << "red=" << red << ", green=" << green << ", blue=" << blue << "\n"; }
     if(red==0 || red>bit_depth || green==0 || green>bit_depth || blue==0 || blue>bit_depth) {
       cout << "Error: values should be > 0 and at most equal to the bit depth";
@@ -501,8 +516,8 @@ void handleBits(bool output) {
       error_count++;
       return;
     }
-    myfread3(1,&gray);
-    myfread3(1,&alpha);
+    readNumber(1,gray,false);
+    readNumber(1,alpha,false);
     if(output) { cout << "gray=" << gray << ", alpha=" << alpha << "\n"; }
     if(gray==0 || gray>bit_depth || alpha==0 || alpha>bit_depth) {
       cout << "Error: values should be > 0 and at most equal to the bit depth";
@@ -515,10 +530,10 @@ void handleBits(bool output) {
       error_count++;
       return;
     }
-    myfread3(1,&red);
-    myfread3(1,&green);
-    myfread3(1,&blue);
-    myfread3(1,&alpha);
+    readNumber(1,red,false);
+    readNumber(1,green,false);
+    readNumber(1,blue,false);
+    readNumber(1,alpha,false);
     if(output) { cout << "red=" << red << ", green=" << green << ", blue=" << blue 
          << ", alpha=" << alpha << "\n"; }
     if(red==0 || red>bit_depth || green==0 || green>bit_depth ||
@@ -532,6 +547,7 @@ void handleBits(bool output) {
 }
 
 void handleTime(bool output) {
+  using std::cout;
   if(chunk_length!=7) {
     cout << "Error: this chunk should be 7 bytes long\n";
     error_count++;
@@ -539,21 +555,22 @@ void handleTime(bool output) {
   else {
     uint16_t year;
     unsigned char month, day, hour, minute, second;
-    myfread3(2,&year);
-    myfread3(1,&month);
-    myfread3(1,&day);
-    myfread3(1,&hour);
-    myfread3(1,&minute);
-    myfread3(1,&second);
+    readNumber(2,year,false);
+    readNumber(1,month,false);
+    readNumber(1,day,false);
+    readNumber(1,hour,false);
+    readNumber(1,minute,false);
+    readNumber(1,second,false);
     if(output) { cout << "    Last modification:" 
-         << " time: "  << (int) hour << "h:" << (int) minute << "mn:" << (int) second << "s"
-         << " date: " << (int) day << "/" << (int) month << "/" << (int) year
+         << " time: "  << (int)hour << "h:" << (int)minute << "mn:" << (int)second << "s"
+         << " date: " << (int)day << "/" << (int)month << "/" << year
          << "\n"; }
     
   }
 }
 
 void handleTransparency(bool output) {
+  using std::cout;
   if(color_type==3) {
     if(output) { cout << "    in color mode 3, this chunk contains an array of\n"
          << "    alpha values corresponding to palette entries\n";
@@ -576,7 +593,7 @@ void handleTransparency(bool output) {
       error_count++;
     } else {
       uint16_t index;
-      myfread3(2,&index);
+      readNumber(2,index,false);
       if(output) { cout << "    in color mode 0, this chunk contains the gray level of\n"
            << "    the only transparent color: " << index << "\n"; }
       if(index >= (1 << bit_depth) ) {
@@ -593,15 +610,15 @@ void handleTransparency(bool output) {
       error_count++;
     } else {
       uint16_t ir,ig,ib,mx;
-      myfread3(2,&ir);
-      myfread3(2,&ig);
-      myfread3(2,&ib);
+      readNumber(2,ir,false);
+      readNumber(2,ig,false);
+      readNumber(2,ib,false);
       if(output) { cout << "    in color mode 0, this chunk contains the RGB values of\n"
            << "    the only transparent color: "; 
       cout << ir << ", " << ig << ", " << ib << "\n"; }
       mx=ir;
-      mx=max(mx,ig);
-      mx=max(mx,ib);
+      mx=std::max(mx,ig);
+      mx=std::max(mx,ib);
       if(mx >= (1 << bit_depth)) {
         cout << "Error: value too big for given bit depth (max="
              << ((1 << bit_depth) -1) << ")\n";
@@ -611,9 +628,12 @@ void handleTransparency(bool output) {
     return;
   }
   cout << "Error: this chunk is forbidden in color modes other than 0,2,3\n";
+  error_count++;
 }
 
 void handleText(bool output) {
+  total_text_chunks++;
+  using std::cout;
   
   cout << "    Textual data, latin-1 encoded.\n";
 
@@ -621,70 +641,73 @@ void handleText(bool output) {
 
   if(output) {
     cout << "    Text: \"";
-//    fsetpos(fp,&chunk_start);
     chunkStreamInit();
     for( ; !chunk_stream_finished; ) {
-      uint32_t len=chunkReadMorsel();
-      char* texte=new char[len];
-      strncpy(texte, chunk_data, len);
-//      if(output) { cout.write((char *)texte, len); }
-      unsigned char* texte2=new unsigned char[2*len]; // 2*len cannot exceed uint32_t's limit because the morsel is small enough (for 2 reasons)
-      uint32_t len2;
-      latin1_to_utf8((unsigned char*)texte,texte2,len,len2);
-      if(output) { cout.write((char *)texte2, len2); } // len2 should be small enough to be correctly converted to a length of type "streamsize"
-      delete[] texte;
+      int32_t len=chunkReadMorsel();
+      cout << latin1_to_utf8(chunk_data,len);
       cout << "\"\n";
     }
   }
 }
 
 void handleZtext(bool output) {
+  total_text_chunks++;
+  using std::cout;
 
   cout << "    Compressed textual data, latin-1 encoded.\n";
 
   if(!readKeyword("    Keyword: \"",output)) return;
 
   unsigned char method;
-  myfread2(1,&method);
+  readNumber(1,method,false);
   
   if(output) {
     cout << "    Compression method (0=zlib) : " << (int)method << "\n";
-  }
-  
-  if(output) {
-    // buffer the whole chunk remaider in memory
-    uint32_t len = chunk_length-(ftell(fp)-chunk_start_longint);
-    delete[] chunk_data;
-    chunk_data = new char[len];
-    if(fread(chunk_data,1,len,fp)<len) call_err();
 
-    output_ztext(chunk_data,len,"    Text: \"","\"\n",true);
+    if((int)method == 0) {
+      // buffer the whole chunk remaider in memory
+      std::streamoff len = chunk_length-(ifs.tellg()-chunk_start);
+      auto mx=std::numeric_limits<size_t>::max();
+      if((size_t)len <= mx) {
+        chunk_data.resize(len);
+        if(!ifs.read(&chunk_data[0],len)) call_err();
+        output_ztext(&chunk_data[0],len,"    Text: \"","\"\n",true);
+      } 
+      else {
+        cout << "    Sorry, this program is not designed to uncompress zlib data bigger than " << mx << "\n";
+      }
+    }
+    else {
+      cout << "Error: compression method " << (int)method <<" not supported by PNG specification 1.0 to 1.2. Either the file PNG version is beyond the version supported by this program (1.2) or there is a problem with the file.\n";
+      error_count++;
+    }
   }
 }
 
 void handleItext(bool output) {
+  total_text_chunks++;
+  using std::cout;
 
   cout << "    International textual data, utf-8 encoded.\n";
 
   if(!readKeyword("    Keyword: \"",output)) return;
 
   unsigned char compressed;
-  myfread2(1,&compressed);
+  readNumber(1,compressed,false);
   if(output) { cout << "    Compressed? (0=no, 1=yes) : " << (int)compressed << "\n"; }
 
   unsigned char method;
-  myfread2(1,&method);
+  readNumber(1,method,false);
   if(output) { cout << "    Compression method (0=zlib) : " << (int)method << "\n"; }
 
   // buffer the whole chunk remainder in memory
-  uint32_t po=(uint32_t) (ftell(fp)-chunk_start_longint);
-  uint32_t len = chunk_length-po;
-  delete[] chunk_data;
-  chunk_data = new char[len];
-  if(fread(chunk_data,1,len,fp)<len) call_err();
+  std::streamoff po = ifs.tellg()-chunk_start;
+  std::streamsize len = chunk_length-po;
+  chunk_data.resize(len);
+  if(!ifs.read(&chunk_data[0],len)) call_err();
 
   bool null_found=false;
-  uint32_t po2;
+  int32_t po2;
   for(po2=po; po2<chunk_length && !null_found; po2++) {
     null_found = chunk_data[po2]==0;
   }
@@ -693,15 +716,15 @@ void handleItext(bool output) {
     error_count++;
     return;
   }
-  if(output) { 
-    char *lang=new char[po2-po];
-    strcpy(lang,chunk_data+po);
-    cout << "    Language tag: \"" << lang << "\"\n";
-    delete[] lang;
+  if(output) {
+    cout << "    Language tag: \"";
+    for(int32_t i=po; i<po2; i++)
+      cout << chunk_data[i];
+    cout << "\"\n";
   }
 
   null_found=false;
-  uint32_t po3;
+  int32_t po3;
   for(po3=po2; po3<chunk_length && !null_found; po3++) {
     null_found = chunk_data[po3]==0;
   }
@@ -711,41 +734,50 @@ void handleItext(bool output) {
     return;
   }
   if(output) { 
-    char *keyword=new char[po3-po2];
-    strcpy(keyword,chunk_data+po2);
-    cout << "    Translated keyword: \"" << keyword << "\"\n";
-    delete[] keyword;
+    cout << "    Translated keyword: \"";
+    for(int32_t i=po2; i<po3; i++)
+      cout << chunk_data[i];
+    cout << "\"\n";
   }
 
   if(compressed) {
-    if(output) {
-
-      output_ztext(chunk_data,len,"    Text: \"","\"\n",false);
-    };
+    if((int)method==0) {
+      if(output) {
+        auto mx=std::numeric_limits<size_t>::max();
+        if((size_t)len <= mx)
+          output_ztext(&chunk_data[0],len,"    Text: \"","\"\n",false);
+        else
+          cout << "    Sorry, this program is not designed to uncompress zlib data bigger than " << mx << "\n";
+      }
+    }
+    else {
+      cout << "Error: compression method " << (int)method <<" not supported by PNG specification 1.0 to 1.2. Either the file PNG version is beyond the version supported by this program (1.2) or there is a problem with the file.\n";
+      error_count++;
+    }
   }
   else {
     if(output) {
+      cout << "    Text: \"";
       chunkStreamInit();
       for( ; !chunk_stream_finished; ) {
-        uint32_t len=chunkReadMorsel();
-        char* texte=new char[len];
-        strncpy(texte, chunk_data, len);
-        cout.write((char *)texte,len);
-        delete[] texte;
-        cout << "\"\n";
+        size_t len=chunkReadMorsel();
+        for(size_t i=0; i<len; i++)
+          cout << chunk_data[i]; // inefficient?
       }
+      cout << "\"\n";
     }
   }
 }
 
 void handleICCP(bool output) {
+  using std::cout;
 
   cout << "    Embedded International Color Consortium profile.\n";
 
   if(!readKeyword("    Profile name: \"",output)) return;
 
   unsigned char method;
-  myfread2(1,&method);
+  readNumber(1,method,false);
   
   if(output) {
     cout << "    Compression method (0=zlib) : " << (int)method << "\n";
@@ -755,10 +787,9 @@ void handleICCP(bool output) {
 /*
   if(output) {
     // buffer the whole chunk remaider in memory
-    uint32_t len = chunk_length-(ftell(fp)-chunk_start_longint);
-    delete[] chunk_data;
-    chunk_data = new char[len];
-    if(fread(chunk_data,1,len,fp)<len) call_err();
+    std::streamoff len = chunk_length-ifs.tellg()-chunk_start;
+    chunk_data.resize(len);
+    if(!ifs.read(chunk_data,len)) call_err();
     
     err... dunno what to do with this data: have to write/get an ICC decoder
 
@@ -767,13 +798,15 @@ void handleICCP(bool output) {
 }
 
 void handleSRGB(bool output) {
+  using std::cout;
+
   if(chunk_length!=1) {
     cout << "Error: should be 1 byte long\n";
     error_count++;
   }
   else {
     unsigned char ri;
-    myfread3(1,&ri);
+    readNumber(1,ri,false);
     if(output) { cout << "    Rendering intent = " << (int)ri << "\n"; }
     if(ri>3) {
       cout << "Error: value has no meaning\n";
@@ -792,6 +825,8 @@ void handleSRGB(bool output) {
 }
 
 void handleUnknown(bool output) {
+  using std::cout;
+
   cout << "Error: chunk name unknown\n";
   error_count++;
   bool is_name=true;
@@ -826,6 +861,8 @@ void handleUnknown(bool output) {
 // Checks whether the order of chunks is correct
 
 void checkOrder() {
+  using std::cout;
+
   if(first_chunk) {
     first_chunk=false;
     
@@ -861,7 +898,7 @@ void checkOrder() {
   }
   if(strncmp(chunk_name,DATA,4)==0) {
     if(data_ended &! data_error) {
-      cout << "Error: DATA chunk should be contiguous\n";
+      cout << "ERROR: DATA chunk should be contiguous\n";
       error_count++;
       data_error=true;
     }
@@ -901,6 +938,7 @@ void checkOrder() {
       if(!(header_met && !palette_met && !data_met)) {
         cout << "ERROR: GAMMA chunk must be after the header,\n"
              << "         before the palette (if any), and before the data\n";
+        error_count++;
       }
       gamma_met=true;
     }
@@ -980,35 +1018,31 @@ void checkOrder() {
 // long and boring procedure to call the right procedure
 
 void handleChunk() {
-  bool output=!text_only;
+  using std::cout;
 
   // Critical
-  if(strncmp(chunk_name,HEADER,4)==0)        { handleHeader(output); goto escape_pt; }
-  if(strncmp(chunk_name,PALETTE,4)==0)       { handlePalette(output); goto escape_pt; }
+  if(strncmp(chunk_name,HEADER,4)==0)        { handleHeader(!text_only); goto escape_pt; }
+  if(strncmp(chunk_name,PALETTE,4)==0)       { handlePalette(!text_only); goto escape_pt; }
   if(strncmp(chunk_name,DATA,4)==0)          { handleData(); goto escape_pt; }
   if(strncmp(chunk_name,END,4)==0)           { handleEnd(); goto escape_pt; }
   // Ancilliary
   // v1.0
-  if(strncmp(chunk_name,BACKGROUND,4)==0)    { handleBackground(output); goto escape_pt; }
-  if(strncmp(chunk_name,CHROMA,4)==0)        { handleChroma(output); goto escape_pt; }
-  if(strncmp(chunk_name,GAMMA,4)==0)         { handleGamma(output); goto escape_pt; }
-  if(strncmp(chunk_name,HISTOGRAM,4)==0)     { handleHistogram(output); goto escape_pt; }
-  if(strncmp(chunk_name,PIXEL,4)==0)         { handlePixel(output); goto escape_pt; }
-  if(strncmp(chunk_name,BITS,4)==0)          { handleBits(output); goto escape_pt; }
-  output=true;
-  if(strncmp(chunk_name,TEXT,4)==0)          { handleText(output); goto escape_pt; }
-  output=!text_only;
-  if(strncmp(chunk_name,TIME,4)==0)          { handleTime(output); goto escape_pt; }
-  if(strncmp(chunk_name,TRANSPARENCY,4)==0)  { handleTransparency(output); goto escape_pt; }
-  output=true;
-  if(strncmp(chunk_name,ZTEXT,4)==0)         { handleZtext(output); goto escape_pt; }
+  if(strncmp(chunk_name,BACKGROUND,4)==0)    { handleBackground(!text_only); goto escape_pt; }
+  if(strncmp(chunk_name,CHROMA,4)==0)        { handleChroma(!text_only); goto escape_pt; }
+  if(strncmp(chunk_name,GAMMA,4)==0)         { handleGamma(!text_only); goto escape_pt; }
+  if(strncmp(chunk_name,HISTOGRAM,4)==0)     { handleHistogram(!text_only); goto escape_pt; }
+  if(strncmp(chunk_name,PIXEL,4)==0)         { handlePixel(!text_only); goto escape_pt; }
+  if(strncmp(chunk_name,BITS,4)==0)          { handleBits(!text_only); goto escape_pt; }
+  if(strncmp(chunk_name,TEXT,4)==0)          { handleText(!no_text); goto escape_pt; }
+  if(strncmp(chunk_name,TIME,4)==0)          { handleTime(!text_only); goto escape_pt; }
+  if(strncmp(chunk_name,TRANSPARENCY,4)==0)  { handleTransparency(!text_only); goto escape_pt; }
+  if(strncmp(chunk_name,ZTEXT,4)==0)         { handleZtext(!no_text); goto escape_pt; }
   // v1.1
-  if(strncmp(chunk_name,EMBEDDED_ICC,4)==0)  { handleICCP(output); goto escape_pt; }
+  if(strncmp(chunk_name,EMBEDDED_ICC,4)==0)  { handleICCP(!text_only); goto escape_pt; }
   if(strncmp(chunk_name,SUGGESTED_PAL,4)==0) { goto escape_pt; }
-  output=!text_only;
-  if(strncmp(chunk_name,SRGB,4)==0)          { handleSRGB(output); goto escape_pt; }
+  if(strncmp(chunk_name,SRGB,4)==0)          { handleSRGB(!text_only); goto escape_pt; }
   // v1.2
-  if(strncmp(chunk_name,INTERNATIONAL,4)==0) { handleItext(output); goto escape_pt; }
+  if(strncmp(chunk_name,INTERNATIONAL,4)==0) { handleItext(!no_text); goto escape_pt; }
   // extension (not handled)
   if(strncmp(chunk_name,OFFSET,4)==0)        { goto not_handled; }
   if(strncmp(chunk_name,PIX_CAL,4)==0)       { goto not_handled; }
@@ -1022,9 +1056,8 @@ void handleChunk() {
     goto escape_pt;
   }
 
-  output=text_only;
   // If the chunk name is unknown :
-  handleUnknown(output); goto escape_pt;
+  handleUnknown(!text_only); goto escape_pt;
 
  not_handled:
   cout << "  This chunk type (registered in PNG extension 1.2.0),\n"
