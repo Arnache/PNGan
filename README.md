@@ -16,7 +16,7 @@ Example of output
 
 `> PNGan testing.png`
 
-    PngAn v0.96
+    PngAn v0.961
 
     Analysis of file testing.png
 

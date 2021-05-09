@@ -1,4 +1,4 @@
-#define VERSION 0.96
+#define VERSION 0.961
 
 #define PROG_NAME "PNGan"
 
@@ -177,7 +177,7 @@ template<typename Int>
 void readNumber(int n, Int& dest, bool _signed)
 { // endianness is reversed
   std::vector<unsigned char> tempo(n);
-  if(!ifs.read((char*)&tempo[0],n)) call_err();
+  if(!ifs.read((char*)tempo.data(),n)) call_err();
   dest = 0;
   for(int i=_signed ? 1 : 0; i < n; i++) {
     dest += ((Int) tempo[i]) << 8*(n-1-i);
@@ -214,7 +214,7 @@ int32_t chunkReadMorsel() {
     len = 65535u;
   }
   chunk_data.resize(len);
-  ifs.read(&chunk_data[0],len); // NORMALLY : no eof, as checked in chunkRead()
+  ifs.read(chunk_data.data(),len); // NORMALLY : no eof, as checked in chunkRead()
   return len;
 }
 
@@ -233,7 +233,7 @@ int32_t chunkReadMorselToCout() {
           len,
           std::ostreambuf_iterator<char>(std::cout)
   );
-  ifs.read(&chunk_data[0],len); // NORMALLY : no eof, as checked in chunkRead()
+  ifs.read(chunk_data.data(),len); // NORMALLY : no eof, as checked in chunkRead()
   return len;
 }
 
@@ -277,7 +277,7 @@ void chunkRead() {
   chunkStreamInit();
   for( ; !chunk_stream_finished; ) {
     len = chunkReadMorsel();
-    crc = update_crc(crc,(unsigned char*) &chunk_data[0], len);
+    crc = update_crc(crc,(unsigned char*) chunk_data.data(), len);
   };
   crc = crc ^ 0xffffffffL;
   
@@ -389,13 +389,13 @@ int main(int argc, char * argv[]) {
     
     // Read signature
     
-    const int sig_size=8;
+    const int sig_size=8; // 8
+    unsigned char sig[sig_size] = {137,80,78,71,13,10,26,10};
 
     readSignature(sig_size);
     
     if(output) { cout << "- Signature (first 8 bytes) :"; }
     
-    unsigned char sig[sig_size] = {137,80,78,71,13,10,26,10};
     if(output) {
       for(int i=0; i<sig_size; i++) {
         cout  << " " << (int) signature[i];
