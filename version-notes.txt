@@ -43,14 +43,14 @@ Cygwin version june 2003
 - added a count of IDAT chunks and of the total image data bytes (always visible)
 - small output tweaks for a more pleasant use
 
-0.961
+0.96.1
 - replaced &v[0] by v.data() where v are vectors
 
-0.962
+0.96.2
 - corrected bugs in output of iTXt chunks
 - VERSION macro is now a string
 
-0.963
+0.96.3
 - Corrected bugs in handling of iTXt chunks
 
 0.97
@@ -62,7 +62,6 @@ Todo:
   - replace use of cstring by more C++ equivalents
   - replace uint*_t by uint_least*_t or uint_fast*_t --or-- stop using them
   - there is a big problem on some (rare) systems: seekg and tellg do not necessarily count bytes, and do not necessarily start at 0
-- interpret iCCP? The spec looks complicated
-- in a previous version I noted: "some messages have no meaning if corresponding variable is undefined". What did I mean?
-- more concise options
+(- interpret iCCP? The spec looks complicated)
+- in a previous version I noted: "some messages have no meaning if corresponding variable is undefined".
 - cout output is utf8 only, may be a problem on Windows
