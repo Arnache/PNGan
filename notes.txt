@@ -50,8 +50,10 @@ Cygwin version june 2003
 - corrected bugs in output of iTXt chunks
 - VERSION macro is now a string
 
-0.963
+0.96.3
 - Corrected bugs in handling of iTXt chunks
+- Changed version numbering
+
 
 Todo:
 - Code cleanup : 
