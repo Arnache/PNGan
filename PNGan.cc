@@ -1,4 +1,4 @@
-#define VERSION "0.962"
+#define VERSION "0.963"
 
 #define PROG_NAME "PNGan"
 

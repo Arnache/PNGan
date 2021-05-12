@@ -451,12 +451,12 @@ void handlePixel(bool output) {
     readNumber(4,a,false);
     readNumber(4,b,false);
     readNumber(1,c,false);
-    if(output) { cout << "    X : " << a << " dots per unit"; }
+    if(output) { cout << "    X: " << a << " dots per unit"; }
     if(c==1) {
       if(output) { cout << " (meaning " << 0.0254*((float) a) << "dpi)"; }
     }
     if(output) { cout << "\n"; }
-    if(output) { cout << "    Y : " << b << " dots per unit" ; }
+    if(output) { cout << "    Y: " << b << " dots per unit" ; }
     if(c==1) {
       if(output) { cout << " (meaning " << 0.0254*((float) b) << "dpi)"; }
     }
@@ -662,7 +662,7 @@ void handleZtext(bool output) {
   readNumber(1,method,false);
   
   if(output) {
-    cout << "    Compression method (0=zlib) : " << (int)method << "\n";
+    cout << "    Compression method (should be 0=zlib): " << (int)method << "\n";
 
     if((int)method == 0) {
       // buffer the whole chunk remaider in memory
@@ -694,11 +694,16 @@ void handleItext(bool output) {
 
   unsigned char compressed;
   readNumber(1,compressed,false);
-  if(output) { cout << "    Compressed? (0=no, 1=yes) : " << (int)compressed << "\n"; }
+  if(output) { cout << "    Compressed? " << (int)compressed << ((int)compressed == 0 ? " (no)" : (int)compressed ==1 ? " (yes)" : " (invalid value)") << "\n"; }
+  if(!((int)compressed ==0 || (int)compressed==1)) {
+    cout << "Error: invalid Compression flag value";
+    error_count++;
+    return;
+  }
 
   unsigned char method;
   readNumber(1,method,false);
-  if(output) { cout << "    Compression method (0=zlib) : " << (int)method << "\n"; }
+  if(output) { cout << "    Compression method (should be 0" << ((int)compressed==1 ? "zlib" : "") << "): " << (int)method << "\n"; }
 
   // buffer the whole chunk remainder in memory
   std::streamoff po = ifs.tellg()-chunk_start;
@@ -709,8 +714,8 @@ void handleItext(bool output) {
   bool null_found;
 
   null_found=false;
-  int32_t po2;
-  for(po2=0; po2<chunk_length && !null_found; po2++) {
+  int32_t po2 = 0;
+  for( ; po2<chunk_length && !null_found; po2++) {
     null_found = chunk_data[po2]==0;
   }
   if(!null_found) {
@@ -719,15 +724,20 @@ void handleItext(bool output) {
     return;
   }
   if(output) {
-    cout << "    Language tag: \"";
-    for(int32_t i=0; i<po2; i++)
-      cout << chunk_data[i];
-    cout << "\"\n";
+    if(po2-1>0) {
+      cout << "    Language tag: \"";
+      for(int32_t i=0; i<po2-1; i++)
+        cout << chunk_data[i];
+      cout << "\"\n";
+    }
+    else {
+      cout << "    No language tag\n";
+    }
   }
 
   null_found=false;
-  int32_t po3;
-  for(po3=po2; po3<chunk_length && !null_found; po3++) {
+  int32_t po3=po2;
+  for( ; po3<chunk_length && !null_found; po3++) {
     null_found = chunk_data[po3]==0;
   }
   if(!null_found) {
@@ -736,10 +746,15 @@ void handleItext(bool output) {
     return;
   }
   if(output) { 
-    cout << "    Translated keyword: \"";
-    for(int32_t i=po2; i<po3; i++)
-      cout << chunk_data[i];
-    cout << "\"\n";
+    if(po3-1>po2) {
+      cout << "    Translated keyword: \"";
+      for(int32_t i=po2; i<po3-1; i++)
+        cout << chunk_data[i];
+      cout << "\"\n";
+    }
+    else {
+      cout << "    No translated keyword\n";
+    }
   }
 
   if(compressed) {
@@ -778,7 +793,7 @@ void handleICCP(bool output) {
   readNumber(1,method,false);
   
   if(output) {
-    cout << "    Compression method (0=zlib) : " << (int)method << "\n";
+    cout << "    Compression method (0=zlib): " << (int)method << "\n";
   }
   
   cout << "    Content: this version of PNGan does not support ICC interpretation.\n" ;

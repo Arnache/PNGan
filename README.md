@@ -16,7 +16,7 @@ Example of output
 
 `> PNGan testing.png`
 
-    PngAn v0.961
+    PngAn v0.963
 
     Analysis of file testing.png
 
@@ -80,3 +80,10 @@ On Windows (Visual C++)
 
 (...)
 
+# Author
+
+Arnaud Chéritat
+
+# Disclaimer
+
+PNGan is provided as-is without any guarantee of any sort. In now way the author can be liable for any damage it may induce.
