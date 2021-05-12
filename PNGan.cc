@@ -1,4 +1,4 @@
-#define VERSION "0.96.3"
+#define VERSION "0.963"
 
 #define PROG_NAME "PNGan"
 
@@ -51,8 +51,11 @@ bool           palette_used, color_used, alpha_used; // color type flags
 bool           end_chunk_met;
 bool           text_only;
 bool           no_text;
+bool           dump_icc;
 bool           hide_IDAT;
 std::streampos chunk_start, chunk_next;
+std::string    icc_filename;
+std::ofstream  icc_fs;
 long int       palette_size;
 
 int32_t        chunk_length;   // PNG standard tells something strange about the sign here
@@ -317,6 +320,8 @@ void show_options() {
   std::cout << "            -x (--no-text) : do not output text chunks content\n";
   std::cout << "            -n (--no-idat) : keep silent for image data chunks\n";
   std::cout << "                             total count given at the end\n";
+  std::cout << "            -icc : dump ICC profile to filename-PNGan.icc\n";
+  std::cout << "                   (possibly overwriting this .icc file)\n";
 }
 
 /*
@@ -357,6 +362,9 @@ int main(int argc, char * argv[]) {
     else if(strcmp(argv[i],"-x")==0 || strcmp(argv[i],"--no-text")==0) {
       no_text = true;
     }
+    else if(strcmp(argv[i],"-icc")==0) {
+      dump_icc = true;
+    }
     else {
       cout << "Error : bad option " << argv[i] << " (option=all but last argument, filename comes last)\n";
       show_options();
@@ -365,7 +373,7 @@ int main(int argc, char * argv[]) {
   }
   
   // open the file
-  
+
   char *filename=argv[argc-1]; // PNG filename
                                // argv so no need to free this pointer
   ifs.open(filename,std::ifstream::binary);
@@ -373,8 +381,17 @@ int main(int argc, char * argv[]) {
     std::cerr << "Fatal Error : unable to open file " << filename << "\n";
     exit(OPEN_ERROR);
   };
-  
-  ifs.exceptions( std::ifstream::failbit | std::ifstream::badbit );
+
+  if(dump_icc) {
+    icc_filename = std::string(filename)+"-PNGan.icc";
+    icc_fs.open(icc_filename,std::ifstream::binary);
+    icc_fs.exceptions(std::ifstream::failbit | std::ifstream::badbit );
+    if(!icc_fs) {
+      std::cerr << "Fatal Error : unable to open file " << icc_filename << "\n";
+      exit(OPEN_ERROR);
+    };
+  }
+
   cout << "Analysis of file " << filename << "\n\n";
   
   // start the analysis

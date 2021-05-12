@@ -1,0 +1,68 @@
+DOS version nov 2001
+
+Cygwin version june 2003
+
+0.9 jul 2003
+
+0.91 jul 2005
+
+0.91 (sic) oct 2005
+
+0.92 July 16th 2016
+  - (...)
+  - Initial commit on GitHub
+
+0.92b July 16th 2016
+  corrected typo in constant.cc : iCPP instead of iCCP 
+
+0.93 July 18th 2016
+  - added zlib support + UTF8 output and some conversion from latin1 to utf8
+    so now can decode zTXt and iTXt
+  - partially cleaned the code
+
+0.94 July 18th 2016
+  - More debugging:
+    - more reliable version number dealing,
+    - replaced (unsigned) long int by (u)int32_t because on clang++ it was 8 bytes long instead of 4
+  - Partial iCCP support
+
+0.95 July 18th 2016
+  - added more uint32_t, int32_t and uint16_t 
+
+0.96 May 2nd 2021
+- started modernising C++ code (still C++11)
+  - decreased pointer use
+  - all dynamic arrays became vectors (RAII)
+  - remplaced FILE by ifstream (allows RAII)
+  - in particular, no more new nor delete
+  - redesigned myfread3 which became (slower but) system agnostic 
+  - renamed myfread, myfread2 and myfread3
+- removed some bugs
+- added an option to hide IDAT chunks (there may be lots of short ones, bloating the output)
+  and an option to hide text chunk contents
+- added a count of IDAT chunks and of the total image data bytes (always visible)
+- small output tweaks for a more pleasant use
+
+0.961
+- replaced &v[0] by v.data() where v are vectors
+
+0.962
+- corrected bugs in output of iTXt chunks
+- VERSION macro is now a string
+
+0.963
+- Corrected bugs in handling of iTXt chunks
+
+0.97
+- can now dump color profile to a file (.icc), if the iCCP chunk is present, with the command line option -icc
+
+Todo:
+- Code cleanup : 
+  - decrease further pointer use
+  - replace use of cstring by more C++ equivalents
+  - replace uint*_t by uint_least*_t or uint_fast*_t --or-- stop using them
+  - there is a big problem on some (rare) systems: seekg and tellg do not necessarily count bytes, and do not necessarily start at 0
+- interpret iCCP? The spec looks complicated
+- in a previous version I noted: "some messages have no meaning if corresponding variable is undefined". What did I mean?
+- more concise options
+- cout output is utf8 only, may be a problem on Windows

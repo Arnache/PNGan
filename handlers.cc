@@ -45,7 +45,7 @@ bool readKeyword(const char* key_text, bool output) {
   // or at the end of the chunk if chunk_length = 0 (then the PNG is malformed)
 }
 
-void output_ztext(char *buffer, size_t len, const char* head_text, const char* trail_text, bool latin1) {
+void output_ztext(char *buffer, size_t len, const char* head_text, const char* trail_text, bool latin1, std::ostream &dest = std::cout) {
   using std::cout;
   const uint32_t MORSEL = 1 << 17; // 128K
 
@@ -65,7 +65,7 @@ void output_ztext(char *buffer, size_t len, const char* head_text, const char* t
     return;
   } 
 
-  cout << head_text;
+  dest << head_text;
   
   uint32_t delta;
   size_t i=0;
@@ -103,10 +103,10 @@ void output_ztext(char *buffer, size_t len, const char* head_text, const char* t
 
       uint32_t have = MORSEL - strm.avail_out;
       if(latin1) {
-        cout << latin1_to_utf8(out,have);
+        dest << latin1_to_utf8(out,have);
       }
       else {
-        cout.write((char *)out,have);
+        dest.write((char *)out,have);
       }
 
     } while (strm.avail_out == 0);
@@ -116,7 +116,7 @@ void output_ztext(char *buffer, size_t len, const char* head_text, const char* t
 fin:
   (void)inflateEnd(&strm);
 
-  if(ret==Z_STREAM_END) cout << trail_text;
+  if(ret==Z_STREAM_END) dest << trail_text;
 }
 
 void handleHeader(bool output) {
@@ -793,21 +793,21 @@ void handleICCP(bool output) {
   readNumber(1,method,false);
   
   if(output) {
-    cout << "    Compression method (0=zlib): " << (int)method << "\n";
+    cout << "    Compression method (must be 0=zlib): " << (int)method << "\n";
   }
-  
-  cout << "    Content: this version of PNGan does not support ICC interpretation.\n" ;
-/*
-  if(output) {
-    // buffer the whole chunk remaider in memory
-    std::streamoff len = chunk_length-ifs.tellg()-chunk_start;
-    chunk_data.resize(len);
-    if(!ifs.read(chunk_data,len)) call_err();
-    
-    err... dunno what to do with this data: have to write/get an ICC decoder
 
+  if(!dump_icc) {
+    cout << "    To dump the ICC to a file, please use option -icc.\n" ;
   }
-*/
+  else {
+    // buffer the whole chunk remainder in memory
+    std::streamoff po = ifs.tellg()-chunk_start;
+    std::streamsize len = chunk_length-po;
+    chunk_data.resize(len);
+    if(!ifs.read(chunk_data.data(),len)) call_err();
+
+    output_ztext(chunk_data.data(),len,"","",false,icc_fs);
+  }
 }
 
 void handleSRGB(bool output) {
