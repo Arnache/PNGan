@@ -7,7 +7,7 @@ bool readKeyword(const char* key_text, bool output) {
   int sz = (chunk_length < 80) ? chunk_length : 80;
   // sz is at most 80
   chunk_data.resize(sz);
-  if(!ifs.read(&chunk_data[0],sz)) call_err();
+  if(!ifs.read(chunk_data.data(),sz)) call_err();
 
   bool null_found=false;
   bool printable=true;
@@ -35,7 +35,7 @@ bool readKeyword(const char* key_text, bool output) {
   
   if(output) {
     char keyword[100];
-    strcpy(keyword,&chunk_data[0]);
+    strcpy(keyword,chunk_data.data());
     cout << key_text << latin1_to_utf8(keyword,index-1) << "\"\n";
     // if index = 0, this is not a problem because latin1_to_utf8(-1) will just do nothing
   }
@@ -670,8 +670,8 @@ void handleZtext(bool output) {
       auto mx=std::numeric_limits<size_t>::max();
       if((size_t)len <= mx) {
         chunk_data.resize(len);
-        if(!ifs.read(&chunk_data[0],len)) call_err();
-        output_ztext(&chunk_data[0],len,"    Text: \"","\"\n",true);
+        if(!ifs.read(chunk_data.data(),len)) call_err();
+        output_ztext(chunk_data.data(),len,"    Text: \"","\"\n",true);
       } 
       else {
         cout << "    Sorry, this program is not designed to uncompress zlib data bigger than " << mx << "\n";
@@ -704,11 +704,13 @@ void handleItext(bool output) {
   std::streamoff po = ifs.tellg()-chunk_start;
   std::streamsize len = chunk_length-po;
   chunk_data.resize(len);
-  if(!ifs.read(&chunk_data[0],len)) call_err();
+  if(!ifs.read(chunk_data.data(),len)) call_err();
 
-  bool null_found=false;
+  bool null_found;
+
+  null_found=false;
   int32_t po2;
-  for(po2=po; po2<chunk_length && !null_found; po2++) {
+  for(po2=0; po2<chunk_length && !null_found; po2++) {
     null_found = chunk_data[po2]==0;
   }
   if(!null_found) {
@@ -718,7 +720,7 @@ void handleItext(bool output) {
   }
   if(output) {
     cout << "    Language tag: \"";
-    for(int32_t i=po; i<po2; i++)
+    for(int32_t i=0; i<po2; i++)
       cout << chunk_data[i];
     cout << "\"\n";
   }
@@ -745,7 +747,7 @@ void handleItext(bool output) {
       if(output) {
         auto mx=std::numeric_limits<size_t>::max();
         if((size_t)len <= mx)
-          output_ztext(&chunk_data[0],len,"    Text: \"","\"\n",false);
+          output_ztext(&chunk_data[po3],len-po3,"    Text: \"","\"\n",false);
         else
           cout << "    Sorry, this program is not designed to uncompress zlib data bigger than " << mx << "\n";
       }
@@ -758,12 +760,8 @@ void handleItext(bool output) {
   else {
     if(output) {
       cout << "    Text: \"";
-      chunkStreamInit();
-      for( ; !chunk_stream_finished; ) {
-        size_t len=chunkReadMorsel();
-        for(size_t i=0; i<len; i++)
-          cout << chunk_data[i]; // inefficient?
-      }
+      for(std::streamsize i=po3; i<len; i++)
+        cout << chunk_data[i]; // inefficient?
       cout << "\"\n";
     }
   }
@@ -845,7 +843,7 @@ void handleUnknown(bool output) {
     }
   }
   if(is_name) {
-    cout << "  Analysis of the name: this chunk is " << (a[0] ? "Critical" : "Ancilliary" )
+    cout << "  Analysis of the name: this chunk is " << (a[0] ? "Critical" : "Ancillary" )
          << " , "       << (a[1] ? "public" : "private" )
          << " , 3rd letter should be uppercase and is: " << (a[2] ? "Uppercase" : "Lowercase" )
          << " , "       << (a[3] ? "unsafe to copy" : "safe to copy" )
@@ -1025,7 +1023,7 @@ void handleChunk() {
   if(strncmp(chunk_name,PALETTE,4)==0)       { handlePalette(!text_only); goto escape_pt; }
   if(strncmp(chunk_name,DATA,4)==0)          { handleData(); goto escape_pt; }
   if(strncmp(chunk_name,END,4)==0)           { handleEnd(); goto escape_pt; }
-  // Ancilliary
+  // Ancillary
   // v1.0
   if(strncmp(chunk_name,BACKGROUND,4)==0)    { handleBackground(!text_only); goto escape_pt; }
   if(strncmp(chunk_name,CHROMA,4)==0)        { handleChroma(!text_only); goto escape_pt; }

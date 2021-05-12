@@ -1,4 +1,4 @@
-#define VERSION 0.961
+#define VERSION "0.962"
 
 #define PROG_NAME "PNGan"
 
@@ -13,9 +13,9 @@ Compilation :
 - Requirements : zlib library and headers must be installed
 - Command : g++ PNGan.cc -lz -o PNGan
 - Alternative commands
-> g++ -Wall --std=c++11 --pedantic-errors PNGan.cc -lz -o PNGan.exe
+> g++ -Wall --std=c++11 --pedantic-errors PNGan.cc -lz -o PNGan
   (strict code error checking alternative) 
-> g++ PNGan.cc -O3 -lz -o PNGan.exe
+> g++ PNGan.cc -O3 -lz -o PNGan
   (optimised for speed of execution of the binary, a priori not necessary) 
 
 Author : Arnaud Chéritat
